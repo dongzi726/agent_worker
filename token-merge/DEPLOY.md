@@ -64,7 +64,7 @@ git clone https://github.com/dongzi726/agent_worker.git
 cd agent_worker
 ```
 
-> 如果项目代码已在 `projects/20260406-tokenMerge/` 目录下，直接 `cd` 进入即可。
+> 如果项目代码已在 `projects/token-merge/` 目录下，直接 `cd` 进入即可。
 
 ### 3.2 安装依赖
 
