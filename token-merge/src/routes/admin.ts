@@ -1,25 +1,31 @@
 // ============================================================
-// routes/admin.ts — Admin management routes
+// routes/admin.ts — Admin management routes (v2: vendor grouping)
 // ============================================================
 
 import type { Request, Response } from 'express';
 import type { TokenPool } from '../tokenPool';
-import type { ApiResponse } from '../types';
+import type { KeyPool } from '../keyPool';
+import type { ApiResponse, VendorConfig } from '../types';
 import { log } from '../logger';
 
 export class AdminRoutes {
   private pool: TokenPool;
+  private keyPools: Map<string, KeyPool>;
+  private vendors: VendorConfig[];
 
-  constructor(pool: TokenPool) {
+  constructor(pool: TokenPool, keyPools: Map<string, KeyPool>, vendors: VendorConfig[]) {
     this.pool = pool;
+    this.keyPools = keyPools;
+    this.vendors = vendors;
   }
 
-  /** GET /admin/quota — Query all model quotas */
+  /** GET /admin/quota — Query all model quotas with vendor grouping (v2) */
   getQuota(_req: Request, res: Response): void {
     const states = this.pool.getAllStates();
     const models = Array.from(states.values()).map((m) => ({
       id: m.id,
       name: m.name,
+      vendor_id: m.vendorId,
       total_tokens: m.total_tokens,
       used_tokens: m.used_tokens,
       remaining_tokens: m.remaining_tokens,
@@ -29,17 +35,39 @@ export class AdminRoutes {
 
     const totalAvailableTokens = this.pool.getTotalAvailableTokens();
 
+    // Group by vendor (v2)
+    const vendorGroups: Array<{
+      id: string;
+      key_pool_size: number;
+      healthy_keys: number;
+      models: typeof models;
+    }> = [];
+
+    for (const vendor of this.vendors) {
+      const vendorModels = models.filter((m) => m.vendor_id === vendor.id);
+      if (vendorModels.length === 0) continue;
+
+      const keyPool = this.keyPools.get(vendor.id);
+      const keyPoolSize = keyPool ? keyPool.getKeyCount() : 0;
+      const healthyKeys = keyPool ? keyPool.getHealthyCount() : 0;
+
+      vendorGroups.push({
+        id: vendor.id,
+        key_pool_size: keyPoolSize,
+        healthy_keys: healthyKeys,
+        models: vendorModels,
+      });
+    }
+
     res.json({
       code: 0,
       message: 'ok',
       data: {
         models,
+        vendors: vendorGroups.length > 0 ? vendorGroups : undefined,
         total_available_tokens: totalAvailableTokens,
       },
-    } as ApiResponse<{
-      models: typeof models;
-      total_available_tokens: number;
-    }>);
+    });
   }
 
   /** PUT /admin/quota/:modelId — Adjust single model quota */
@@ -58,7 +86,6 @@ export class AdminRoutes {
 
     this.pool.adjustQuota(modelId, body.total_tokens).then((result) => {
       if (!result) {
-        // Check if model exists at all
         const existing = this.pool.getState(modelId);
         if (!existing) {
           res.status(404).json({
@@ -88,13 +115,7 @@ export class AdminRoutes {
           remaining_tokens: result.remaining_tokens,
           status: result.status,
         },
-      } as ApiResponse<{
-        id: string;
-        total_tokens: number;
-        used_tokens: number;
-        remaining_tokens: number;
-        status: string;
-      }>);
+      });
     }).catch((err: Error) => {
       log.error('Failed to adjust quota', { modelId, error: err.message });
       res.status(500).json({
@@ -130,14 +151,7 @@ export class AdminRoutes {
           status: result.status,
           reset_at: new Date().toISOString(),
         },
-      } as ApiResponse<{
-        id: string;
-        total_tokens: number;
-        used_tokens: number;
-        remaining_tokens: number;
-        status: string;
-        reset_at: string;
-      }>);
+      });
     }).catch((err: Error) => {
       log.error('Failed to reset usage', { modelId, error: err.message });
       res.status(500).json({
@@ -156,13 +170,13 @@ export class AdminRoutes {
 
     let states = Array.from(this.pool.getAllStates().values());
 
-    // Filter by model
     if (modelFilter) {
       states = states.filter((m) => m.id === modelFilter);
     }
 
     const models = states.map((m) => ({
       id: m.id,
+      vendor_id: m.vendorId,
       total_prompt_tokens: m.total_prompt_tokens,
       total_completion_tokens: m.total_completion_tokens,
       total_tokens: m.used_tokens,
@@ -175,6 +189,6 @@ export class AdminRoutes {
       code: 0,
       message: 'ok',
       data: { models },
-    } as ApiResponse<{ models: typeof models }>);
+    });
   }
 }

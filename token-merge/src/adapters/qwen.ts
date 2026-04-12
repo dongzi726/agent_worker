@@ -1,5 +1,5 @@
 // ============================================================
-// adapters/qwen.ts — Qwen (通义千问) adapter
+// adapters/qwen.ts — Qwen (通义千问) adapter (v2)
 // Compatible with DashScope OpenAI-compatible endpoint
 // ============================================================
 
@@ -20,7 +20,8 @@ export class QwenAdapter extends ModelAdapter {
     prompt: string,
     maxTokens: number,
     temperature: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    overrideApiKey?: string
   ): Promise<AdapterResult> {
     const messages: Array<{ role: string; content: string }> = [];
     if (systemPrompt) {
@@ -35,7 +36,9 @@ export class QwenAdapter extends ModelAdapter {
       temperature,
     };
 
-    log.debug('[qwen] Sending request', { model: this.modelName, maxTokens, temperature });
+    const effectiveKey = this.getEffectiveApiKey(overrideApiKey);
+
+    log.debug('[qwen] Sending request', { model: this.modelName, maxTokens, temperature, keyId: overrideApiKey ? 'override' : 'default' });
 
     try {
       const response = await this.fetchWithTimeout(
@@ -44,7 +47,7 @@ export class QwenAdapter extends ModelAdapter {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${effectiveKey}`,
           },
           body: JSON.stringify(body),
         },

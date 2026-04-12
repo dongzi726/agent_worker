@@ -1,5 +1,5 @@
 // ============================================================
-// routes/chat.ts — User-facing chat API routes
+// routes/chat.ts — User-facing chat API routes (v2)
 // ============================================================
 
 import type { Request, Response } from 'express';
@@ -10,9 +10,11 @@ import { log } from '../logger';
 
 export class ChatRoutes {
   private router: ModelRouter;
+  private includeFallbackDetail: boolean;
 
-  constructor(router: ModelRouter) {
+  constructor(router: ModelRouter, includeFallbackDetail: boolean = false) {
     this.router = router;
+    this.includeFallbackDetail = includeFallbackDetail;
   }
 
   /** POST /v1/chat — Unified chat endpoint */
@@ -58,31 +60,44 @@ export class ChatRoutes {
       log.info('Chat request received', { requestId, promptLength: body.prompt.length });
 
       // Route to best available model
-      const { result, modelId } = await this.router.route({
+      const { result, modelId, vendorId, keyId, fallbackDetail } = await this.router.route({
         prompt: body.prompt.trim(),
         max_tokens: body.max_tokens,
         temperature: body.temperature,
         system_prompt: body.system_prompt,
       });
 
-      const response: ApiResponse<{
+      const responseData: {
         id: string;
         content: string;
         model_used: string;
+        vendor_used: string;
+        key_used: string;
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
-      }> = {
+        fallback_count: number;
+        fallback_detail?: ReturnType<typeof buildFallbackDetail>;
+      } = {
+        id: requestId,
+        content: result.content,
+        model_used: modelId,
+        vendor_used: vendorId,
+        key_used: keyId,
+        prompt_tokens: result.prompt_tokens,
+        completion_tokens: result.completion_tokens,
+        total_tokens: result.total_tokens,
+        fallback_count: fallbackDetail.key_fallbacks + fallbackDetail.model_fallbacks,
+      };
+
+      if (this.includeFallbackDetail) {
+        responseData.fallback_detail = buildFallbackDetail(fallbackDetail);
+      }
+
+      const response: ApiResponse<typeof responseData> = {
         code: 0,
         message: 'ok',
-        data: {
-          id: requestId,
-          content: result.content,
-          model_used: modelId,
-          prompt_tokens: result.prompt_tokens,
-          completion_tokens: result.completion_tokens,
-          total_tokens: result.total_tokens,
-        },
+        data: responseData,
       };
 
       res.json(response);
@@ -110,7 +125,9 @@ export class ChatRoutes {
       const userMessages = body.messages.filter((m: { role: string }) => m.role === 'user');
       const lastUserMessage = userMessages[userMessages.length - 1];
       const systemMessages = body.messages.filter((m: { role: string }) => m.role === 'system');
-      const systemPrompt = systemMessages.length > 0 ? systemMessages.map((m: { content: string }) => m.content).join('\n') : undefined;
+      const systemPrompt = systemMessages.length > 0
+        ? systemMessages.map((m: { content: string }) => m.content).join('\n')
+        : undefined;
 
       const prompt = lastUserMessage?.content ?? '';
       if (typeof prompt !== 'string' || prompt.trim().length === 0) {
@@ -134,9 +151,9 @@ export class ChatRoutes {
       log.info('OpenAI-compatible chat request received', { requestId, promptLength: prompt.length });
 
       // Route to best available model
-      const { result, modelId } = await this.router.route(chatRequest);
+      const { result, modelId, vendorId, keyId, fallbackDetail } = await this.router.route(chatRequest);
 
-      const response: ApiResponse<{
+      const responseData: {
         id: string;
         object: string;
         created: number;
@@ -151,30 +168,38 @@ export class ChatRoutes {
           completion_tokens: number;
           total_tokens: number;
         };
-      }> = {
+        vendor_used: string;
+        key_used: string;
+        fallback_count: number;
+      } = {
+        id: requestId,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: modelId,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: result.content,
+            },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: result.prompt_tokens,
+          completion_tokens: result.completion_tokens,
+          total_tokens: result.total_tokens,
+        },
+        vendor_used: vendorId,
+        key_used: keyId,
+        fallback_count: fallbackDetail.key_fallbacks + fallbackDetail.model_fallbacks,
+      };
+
+      const response: ApiResponse<typeof responseData> = {
         code: 0,
         message: 'ok',
-        data: {
-          id: requestId,
-          object: 'chat.completion',
-          created: Math.floor(Date.now() / 1000),
-          model: modelId,
-          choices: [
-            {
-              index: 0,
-              message: {
-                role: 'assistant',
-                content: result.content,
-              },
-              finish_reason: 'stop',
-            },
-          ],
-          usage: {
-            prompt_tokens: result.prompt_tokens,
-            completion_tokens: result.completion_tokens,
-            total_tokens: result.total_tokens,
-          },
-        },
+        data: responseData,
       };
 
       res.json(response);
@@ -202,4 +227,19 @@ export class ChatRoutes {
       data: null,
     } as ApiResponse<null>);
   }
+}
+
+/** Build fallback_detail for API response */
+function buildFallbackDetail(detail: {
+  key_fallbacks: number;
+  model_fallbacks: number;
+  tried_keys: string[];
+  tried_models: string[];
+}) {
+  return {
+    key_fallbacks: detail.key_fallbacks,
+    model_fallbacks: detail.model_fallbacks,
+    tried_keys: detail.tried_keys,
+    tried_models: detail.tried_models,
+  };
 }

@@ -1,5 +1,5 @@
 // ============================================================
-// adapters/glm.ts — GLM (智谱) adapter
+// adapters/glm.ts — GLM (智谱) adapter (v2)
 // ZhipuAI API with its own auth mechanism (JWT with API key signing)
 // ============================================================
 
@@ -11,41 +11,38 @@ import { log } from '../logger';
 export class GLMAdapter extends ModelAdapter {
   readonly modelType = 'glm';
   readonly modelId: string;
-  private apiKeyId: string;
-  private apiKeySecret: string;
 
   constructor(endpoint: string, apiKey: string, modelName: string, modelId: string) {
     super(endpoint, apiKey, modelName);
     this.modelId = modelId;
-    // Zhipu API keys are in format: "keyId.keySecret"
+  }
+
+  /** Parse a GLM API key into id and secret */
+  private parseKey(apiKey: string): { keyId: string; keySecret: string } {
     const parts = apiKey.split('.');
-    this.apiKeyId = parts[0] ?? apiKey;
-    this.apiKeySecret = parts[1] ?? apiKey;
+    return { keyId: parts[0] ?? apiKey, keySecret: parts[1] ?? apiKey };
   }
 
   /** Generate JWT token for ZhipuAI authentication */
-  private generateToken(): string {
+  private generateToken(keyId: string, keySecret: string): string {
     const now = Math.floor(Date.now() / 1000);
     const exp = now + 3600; // 1 hour
 
-    // JWT Header
     const header = Buffer.from(
       JSON.stringify({ alg: 'HS256', sign_type: 'SIGN', typ: 'JWT' })
     ).toString('base64url');
 
-    // JWT Payload
     const payload = Buffer.from(
       JSON.stringify({
-        api_key: this.apiKeyId,
+        api_key: keyId,
         exp,
         timestamp: now,
       })
     ).toString('base64url');
 
-    // Signature
     const signingInput = `${header}.${payload}`;
     const signature = crypto
-      .createHmac('sha256', this.apiKeySecret)
+      .createHmac('sha256', keySecret)
       .update(signingInput)
       .digest('base64url');
 
@@ -56,7 +53,8 @@ export class GLMAdapter extends ModelAdapter {
     prompt: string,
     maxTokens: number,
     temperature: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    overrideApiKey?: string
   ): Promise<AdapterResult> {
     const messages: Array<{ role: string; content: string }> = [];
     if (systemPrompt) {
@@ -71,9 +69,11 @@ export class GLMAdapter extends ModelAdapter {
       temperature,
     };
 
-    const token = this.generateToken();
+    const effectiveKey = overrideApiKey ?? this.apiKey;
+    const { keyId, keySecret } = this.parseKey(effectiveKey);
+    const token = this.generateToken(keyId, keySecret);
 
-    log.debug('[glm] Sending request', { model: this.modelName, maxTokens, temperature });
+    log.debug('[glm] Sending request', { model: this.modelName, maxTokens, temperature, keyId: overrideApiKey ? 'override' : 'default' });
 
     try {
       const response = await this.fetchWithTimeout(

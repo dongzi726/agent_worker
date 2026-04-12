@@ -1,5 +1,5 @@
 // ============================================================
-// adapters/minimax.ts — MiniMax adapter
+// adapters/minimax.ts — MiniMax adapter (v2)
 // MiniMax API has its own format (not OpenAI-compatible)
 // ============================================================
 
@@ -20,10 +20,9 @@ export class MiniMaxAdapter extends ModelAdapter {
     prompt: string,
     maxTokens: number,
     temperature: number,
-    systemPrompt?: string
+    systemPrompt?: string,
+    overrideApiKey?: string
   ): Promise<AdapterResult> {
-    // MiniMax uses a different request format
-    // Reference: https://www.minimaxi.com/document/guides/chat-model/text/api
     const messages: Array<{ sender_type: string; text: string }> = [];
     if (systemPrompt) {
       messages.push({ sender_type: 'SYSTEM', text: systemPrompt });
@@ -35,12 +34,12 @@ export class MiniMaxAdapter extends ModelAdapter {
       messages,
       max_tokens: maxTokens,
       temperature,
-      // MiniMax uses bot_setting for system-level configuration
       bot_setting: systemPrompt || '',
     };
 
-    // MiniMax authentication: Authorization header with Bearer token
-    log.debug('[minimax] Sending request', { model: this.modelName, maxTokens, temperature });
+    const effectiveKey = this.getEffectiveApiKey(overrideApiKey);
+
+    log.debug('[minimax] Sending request', { model: this.modelName, maxTokens, temperature, keyId: overrideApiKey ? 'override' : 'default' });
 
     try {
       const response = await this.fetchWithTimeout(
@@ -49,7 +48,7 @@ export class MiniMaxAdapter extends ModelAdapter {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
+            Authorization: `Bearer ${effectiveKey}`,
           },
           body: JSON.stringify(body),
         },
@@ -63,9 +62,6 @@ export class MiniMaxAdapter extends ModelAdapter {
 
       const data = (await response.json()) as Record<string, unknown>;
 
-      // MiniMax response format:
-      // { reply: "...", usage: { total_tokens, tokens: [{type, tokens}] } }
-      // or v2 format with choices array
       let content = '';
       let promptTokens = 0;
       let completionTokens = 0;
@@ -74,18 +70,15 @@ export class MiniMaxAdapter extends ModelAdapter {
       const usage = (data.usage ?? {}) as Record<string, unknown>;
 
       if (choices && choices.length > 0) {
-        // OpenAI-compatible response format (v2)
         content = choices[0]?.message?.content ?? '';
         promptTokens = (usage.prompt_tokens as number) ?? 0;
         completionTokens = (usage.completion_tokens as number) ?? 0;
       } else if (typeof data.reply === 'string') {
-        // Classic MiniMax format
         content = data.reply;
         const tokens = (usage.tokens as Array<{ type?: string; tokens?: number }> | undefined) ?? [];
         promptTokens = tokens.find((t) => t.type === 'prompt')?.tokens ?? 0;
         completionTokens = tokens.find((t) => t.type === 'completion')?.tokens ?? 0;
       } else if (Array.isArray(data.reply_choices)) {
-        // Alternative MiniMax format
         content = (data.reply_choices[0] as { text?: string })?.text ?? '';
         const totalTokensNum = (usage.total_tokens as number) ?? 0;
         promptTokens = totalTokensNum ? Math.floor(totalTokensNum * 0.3) : 0;

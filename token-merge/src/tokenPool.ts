@@ -1,5 +1,5 @@
 // ============================================================
-// tokenPool.ts — In-memory token management pool
+// tokenPool.ts — In-memory token management pool (v2)
 // Thread-safe via Node.js single-threaded event loop + mutex for async boundaries
 // ============================================================
 
@@ -16,6 +16,7 @@ export class TokenPool {
       this.models.set(m.id, {
         id: m.id,
         name: m.name,
+        vendorId: m.vendorId,
         total_tokens: m.total_tokens,
         used_tokens: 0,
         remaining_tokens: m.total_tokens,
@@ -173,6 +174,7 @@ export class TokenPool {
   getHealthSummary() {
     const models = Array.from(this.models.values()).map((m) => ({
       id: m.id,
+      vendorId: m.vendorId,
       status: m.status,
       remaining_tokens: m.remaining_tokens,
     }));
