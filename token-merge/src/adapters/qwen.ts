@@ -7,6 +7,38 @@ import type { AdapterResult } from '../types';
 import { ModelAdapter } from './base';
 import { log } from '../logger';
 
+function normalizeQwenEndpoint(endpoint: string): string {
+  const normalized = endpoint.trim().replace(/\/+$/, '');
+
+  if (normalized.endsWith('/compatible-mode/v1/chat/completions')) {
+    return normalized;
+  }
+
+  if (normalized.endsWith('/api/v2/apps/protocols/compatible-mode/v1/chat/completions')) {
+    return normalized.replace(
+      '/api/v2/apps/protocols/compatible-mode/v1/chat/completions',
+      '/compatible-mode/v1/chat/completions'
+    );
+  }
+
+  if (normalized.endsWith('/api/v2/apps/protocols/compatible-mode/v1')) {
+    return normalized.replace(
+      '/api/v2/apps/protocols/compatible-mode/v1',
+      '/compatible-mode/v1/chat/completions'
+    );
+  }
+
+  if (normalized.endsWith('/compatible-mode/v1')) {
+    return `${normalized}/chat/completions`;
+  }
+
+  if (/^https?:\/\/[^/]+$/.test(normalized)) {
+    return `${normalized}/compatible-mode/v1/chat/completions`;
+  }
+
+  return normalized;
+}
+
 export class QwenAdapter extends ModelAdapter {
   readonly modelType = 'qwen';
   readonly modelId: string;
@@ -23,6 +55,7 @@ export class QwenAdapter extends ModelAdapter {
     systemPrompt?: string,
     overrideApiKey?: string
   ): Promise<AdapterResult> {
+    const requestUrl = normalizeQwenEndpoint(this.endpoint);
     const messages: Array<{ role: string; content: string }> = [];
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
@@ -38,11 +71,17 @@ export class QwenAdapter extends ModelAdapter {
 
     const effectiveKey = this.getEffectiveApiKey(overrideApiKey);
 
-    log.debug('[qwen] Sending request', { model: this.modelName, maxTokens, temperature, keyId: overrideApiKey ? 'override' : 'default' });
+    log.debug('[qwen] Sending request', {
+      model: this.modelName,
+      maxTokens,
+      temperature,
+      keyId: overrideApiKey ? 'override' : 'default',
+      endpoint: requestUrl,
+    });
 
     try {
       const response = await this.fetchWithTimeout(
-        this.endpoint,
+        requestUrl,
         {
           method: 'POST',
           headers: {
@@ -56,7 +95,10 @@ export class QwenAdapter extends ModelAdapter {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Qwen API error ${response.status}: ${errorText}`);
+        throw Object.assign(new Error(`Qwen API error ${response.status}: ${errorText}`), {
+          statusCode: response.status,
+          endpoint: requestUrl,
+        });
       }
 
       const data = (await response.json()) as Record<string, unknown>;

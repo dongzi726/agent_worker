@@ -22,14 +22,12 @@ export function createAdaptersFromVendors(
   const adapters = new Map<string, ModelAdapter>();
 
   for (const vendor of vendors) {
-    // Resolve API keys from environment
+    // Resolve API keys from config.json
     const keyMap = new Map<string, string>();
     for (const kp of vendor.key_pool) {
-      const apiKey = process.env[kp.api_key_env];
+      const apiKey = kp.api_key;
       if (!apiKey) {
-        log.warn(
-          `Vendor "${vendor.id}" key "${kp.label}": env variable "${kp.api_key_env}" not set, skipping key`
-        );
+        log.warn(`Vendor "${vendor.id}" key "${kp.label}": api_key not set, skipping key`);
         continue;
       }
       keyMap.set(kp.label, apiKey);
@@ -38,7 +36,8 @@ export function createAdaptersFromVendors(
     // Create adapters for this vendor's models
     for (const m of vendor.models) {
       // Default key: 'default' label if exists, else first key
-      const defaultKey = keyMap.get('default') ?? keyMap.values().next().value ?? '';
+      const firstKey = keyMap.values().next().value as string | undefined;
+      const defaultKey = keyMap.get('default') ?? firstKey ?? '';
       let adapter: ModelAdapter | undefined;
       switch (m.type) {
         case 'qwen':
@@ -83,7 +82,7 @@ export function createKeyPoolsFromVendors(
   for (const vendor of vendors) {
     const keyEntries: { config: KeyEntryConfig; apiKey: string }[] = [];
     for (const kp of vendor.key_pool) {
-      const apiKey = process.env[kp.api_key_env];
+      const apiKey = kp.api_key;
       if (!apiKey) {
         continue;
       }
@@ -117,9 +116,9 @@ export function createAdapters(models: ModelConfig[]): Map<string, ModelAdapter>
   const adapters = new Map<string, ModelAdapter>();
 
   for (const m of models) {
-    const apiKey = process.env[(m as unknown as Record<string, string>)['api_key_env']];
+    const apiKey = (m as unknown as Record<string, string>)['api_key'];
     if (!apiKey) {
-      log.warn(`Skipping model ${m.id}: API key not configured`);
+      log.warn(`Skipping model ${m.id}: api_key not configured`);
       continue;
     }
 

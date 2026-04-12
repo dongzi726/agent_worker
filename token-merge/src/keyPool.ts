@@ -78,6 +78,7 @@ export class KeyPool {
         isQuickRecovery: false,
       };
       this.keyStates.set(keyId, state);
+      this.apiKeyMap.set(keyId, entry.apiKey);
       this.keyOrder.push(keyId);
     }
 
@@ -616,8 +617,8 @@ export class KeyPool {
   private applyCooldownSync(state: KeyState, baseMs: number): void {
     state.totalCooldowns++;
 
-    // If this key is already in cooldown, double the duration (exponential backoff)
-    if (state.status === 'cooldown' && state.cooldownBaseMs > 0) {
+    // If this key has entered cooldown before, continue exponential backoff.
+    if (state.cooldownBaseMs > 0) {
       state.cooldownBaseMs = Math.min(state.cooldownBaseMs * 2, COOLDOWN_MAX_MS);
     } else {
       state.cooldownBaseMs = Math.max(baseMs, state.cooldownBaseMs || baseMs);

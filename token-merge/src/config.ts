@@ -14,8 +14,6 @@ import { log } from './logger';
 
 /** Resolve config.json path relative to project root */
 function resolveConfigPath(): string {
-  const envPath = process.env.CONFIG_PATH;
-  if (envPath) return path.resolve(envPath);
   const projectRoot = path.resolve(__dirname, '..');
   return path.join(projectRoot, 'config.json');
 }
@@ -40,19 +38,18 @@ export function loadConfig(): AppConfig {
     throw new Error(`Invalid JSON in config file: ${configPath}`);
   }
 
-  // Apply env overrides for server settings
-  const port = parseInt(process.env.PORT as string, 10) || (rawConfig.port as number) || 3000;
-  const bindAddress = (process.env.BIND_ADDRESS as string) || (rawConfig.bindAddress as string) || '127.0.0.1';
-  const requestTimeoutMs =
-    parseInt(process.env.REQUEST_TIMEOUT_MS as string, 10) || (rawConfig.requestTimeoutMs as number) || 60000;
-  const maxFallbackAttempts =
-    parseInt(process.env.MAX_FALLBACK_ATTEMPTS as string, 10) || (rawConfig.maxFallbackAttempts as number) || 3;
-  const totalRequestTimeoutMs =
-    parseInt(process.env.TOTAL_REQUEST_TIMEOUT_MS as string, 10) || (rawConfig.totalRequestTimeoutMs as number) || 90000;
-  const includeFallbackDetail =
-    process.env.INCLUDE_FALLBACK_DETAIL === 'true' || (rawConfig.includeFallbackDetail as boolean) || false;
-  const keyStatsWindowHours =
-    parseInt(process.env.KEY_STATS_WINDOW_HOURS as string, 10) || (rawConfig.keyStatsWindowHours as number) || 24;
+  const port = (rawConfig.port as number) || 3000;
+  const bindAddress = (rawConfig.bindAddress as string) || '127.0.0.1';
+  const logLevelRaw = (rawConfig.logLevel as string) || 'info';
+  const logLevel =
+    logLevelRaw === 'debug' || logLevelRaw === 'info' || logLevelRaw === 'warn' || logLevelRaw === 'error'
+      ? logLevelRaw
+      : 'info';
+  const requestTimeoutMs = (rawConfig.requestTimeoutMs as number) || 60000;
+  const maxFallbackAttempts = (rawConfig.maxFallbackAttempts as number) || 3;
+  const totalRequestTimeoutMs = (rawConfig.totalRequestTimeoutMs as number) || 90000;
+  const includeFallbackDetail = (rawConfig.includeFallbackDetail as boolean) || false;
+  const keyStatsWindowHours = (rawConfig.keyStatsWindowHours as number) || 24;
 
   // Detect v2 vs v1 format
   const hasVendors = rawConfig.vendors !== undefined && rawConfig.vendors !== null;
@@ -61,13 +58,13 @@ export function loadConfig(): AppConfig {
   if (hasVendors) {
     return parseV2Config(rawConfig, {
       port, bindAddress, requestTimeoutMs, maxFallbackAttempts,
-      totalRequestTimeoutMs, includeFallbackDetail, keyStatsWindowHours,
+      totalRequestTimeoutMs, includeFallbackDetail, keyStatsWindowHours, logLevel,
     });
   } else if (hasModels) {
     log.info('Detected v1 config format, auto-transforming to v2 internal representation');
     return transformV1ToV2(rawConfig, {
       port, bindAddress, requestTimeoutMs, maxFallbackAttempts,
-      totalRequestTimeoutMs, includeFallbackDetail, keyStatsWindowHours,
+      totalRequestTimeoutMs, includeFallbackDetail, keyStatsWindowHours, logLevel,
     });
   } else {
     throw new Error(
@@ -89,6 +86,7 @@ function parseV2Config(
     totalRequestTimeoutMs: number;
     includeFallbackDetail: boolean;
     keyStatsWindowHours: number;
+    logLevel: AppConfig['logLevel'];
   }
 ): AppConfig {
   const vendorsRaw = rawConfig.vendors as Record<string, unknown>;
@@ -102,13 +100,13 @@ function parseV2Config(
       throw new Error(`Vendor "${vendorId}": missing required field "type"`);
     }
 
-    // Check for mix of api_key/api_key_env and key_pool
-    const hasApiKey = v.api_key !== undefined || v.api_key_env !== undefined;
+    // Check for mix of api_key and key_pool
+    const hasApiKey = typeof v.api_key === 'string';
     const hasKeyPool = Array.isArray(v.key_pool);
 
     if (hasApiKey && hasKeyPool) {
       throw new Error(
-        `Vendor "${vendorId}": cannot mix "api_key"/"api_key_env" and "key_pool". Use one or the other.`
+        `Vendor "${vendorId}": cannot mix "api_key" and "key_pool". Use one or the other.`
       );
     }
 
@@ -123,35 +121,35 @@ function parseV2Config(
       const keySet = new Set<string>();
       const labelSet = new Set<string>();
       keyPool = poolEntries.map((entry, index) => {
-        const envVarName = entry.api_key_env as string;
-        if (!envVarName) {
-          throw new Error(`Vendor "${vendorId}": key_pool[${index}] missing "api_key_env"`);
+        const apiKey = entry.api_key as string;
+        if (!apiKey) {
+          throw new Error(`Vendor "${vendorId}": key_pool[${index}] missing "api_key"`);
         }
 
         const label = (entry.label as string) || `key-${index + 1}`;
         const weight = typeof entry.weight === 'number' && entry.weight > 0 ? entry.weight : 1;
 
-        if (keySet.has(envVarName)) {
+        if (keySet.has(apiKey)) {
           throw new Error(
-            `Vendor "${vendorId}": duplicate api_key_env "${envVarName}" in key_pool`
+            `Vendor "${vendorId}": duplicate api_key in key_pool`
           );
         }
-        keySet.add(envVarName);
+        keySet.add(apiKey);
 
         if (labelSet.has(label)) {
           throw new Error(`Vendor "${vendorId}": duplicate label "${label}" in key_pool`);
         }
         labelSet.add(label);
 
-        return { api_key_env: envVarName, weight, label };
+        return { api_key: apiKey, weight, label };
       });
     } else if (hasApiKey) {
-      const envName = (v.api_key_env as string) || 'API_KEY';
+      const apiKey = v.api_key as string;
       const label = (v.key_label as string) || 'default';
-      keyPool = [{ api_key_env: envName, weight: 1, label }];
+      keyPool = [{ api_key: apiKey, weight: 1, label }];
     } else {
       throw new Error(
-        `Vendor "${vendorId}": must define either "key_pool" array or "api_key_env"`
+        `Vendor "${vendorId}": must define either "key_pool" array or "api_key"`
       );
     }
 
@@ -216,6 +214,7 @@ function transformV1ToV2(
     totalRequestTimeoutMs: number;
     includeFallbackDetail: boolean;
     keyStatsWindowHours: number;
+    logLevel: AppConfig['logLevel'];
   }
 ): AppConfig {
   const modelsRaw = rawConfig.models as Array<Record<string, unknown>>;
@@ -233,30 +232,29 @@ function transformV1ToV2(
     byType.set(t, list);
   }
 
-  // Check for same type with different api_key_env (migration required)
+  // Check for same type with different api_key (migration required)
   for (const [type, models] of byType) {
-    const envVars = new Set(models.map((mm) => mm.api_key_env));
-    if (envVars.size > 1) {
+    const apiKeys = new Set(models.map((mm) => mm.api_key));
+    if (apiKeys.size > 1) {
       throw new Error(
-        `Migration required: models of type "${type}" have different api_key_env values ` +
-          `(${Array.from(envVars).join(', ')}). In v2, all models of the same vendor must share a KeyPool. ` +
+        `Migration required: models of type "${type}" have different api_key values. ` +
+          `In v2, all models of the same vendor must share a KeyPool. ` +
           `Please reconfigure using the v2 "vendors" format.`
       );
     }
   }
 
-  log.info('v1 config: model-level api_key_env will be used as vendor-level single Key');
+  log.info('v1 config: model-level api_key will be used as vendor-level single Key');
 
   const vendors: VendorConfig[] = [];
   const allModels: ModelConfig[] = [];
 
   for (const [type, models] of byType) {
     const vendorId = type;
-    const apiKeyEnv = models[0].api_key_env as string;
+    const apiKey = models[0].api_key as string;
 
-    const apiKeyValue = process.env[apiKeyEnv];
-    if (!apiKeyValue) {
-      log.warn(`Skipping vendor "${vendorId}": env var ${apiKeyEnv} not set`);
+    if (!apiKey) {
+      log.warn(`Skipping vendor "${vendorId}": api_key not set`);
       continue;
     }
 
@@ -271,7 +269,7 @@ function transformV1ToV2(
     }));
 
     const keyPool: KeyEntryConfig[] = [
-      { api_key_env: apiKeyEnv, weight: 1, label: 'default' },
+      { api_key: apiKey, weight: 1, label: 'default' },
     ];
 
     vendors.push({
@@ -287,7 +285,7 @@ function transformV1ToV2(
 
   if (vendors.length === 0) {
     throw new Error(
-      'No vendors could be loaded from v1 config — check that all api_key_env variables are set'
+      'No vendors could be loaded from v1 config — check that all api_key fields are set'
     );
   }
 
@@ -299,18 +297,16 @@ function transformV1ToV2(
 }
 
 /**
- * Resolve all API keys from environment variables for a vendor's key pool.
+ * Resolve all API keys directly from vendor key_pool configuration.
  * Returns array of { config, apiKey } pairs.
  */
 export function resolveVendorKeys(vendor: VendorConfig): { config: KeyEntryConfig; apiKey: string }[] {
   const results: { config: KeyEntryConfig; apiKey: string }[] = [];
 
   for (const entry of vendor.key_pool) {
-    const apiKey = process.env[entry.api_key_env];
+    const apiKey = entry.api_key;
     if (!apiKey) {
-      log.warn(
-        `Vendor "${vendor.id}": API key env var "${entry.api_key_env}" not set, skipping key "${entry.label}"`
-      );
+      log.warn(`Vendor "${vendor.id}": api_key missing, skipping key "${entry.label}"`);
       continue;
     }
     results.push({ config: entry, apiKey });

@@ -2,9 +2,10 @@
  * v2 Tests: Config & Types (V2-F1)
  */
 import type {
-  VendorConfig, ModelConfig, KeyEntryConfig, KeyRoutingStrategy,
-  FailureType, FallbackDetail, RouterResult, KeyStateWithInfo,
-  HealthStatus, V2AppConfig, ModelState, ChatResponseDataV2,
+  VendorConfig,
+  FallbackDetail,
+  HealthStatus,
+  ModelState,
 } from '../../src/types';
 import { classifyErrorType } from '../../src/router';
 
@@ -38,8 +39,8 @@ const vendor: VendorConfig = {
   id: 'qwen',
   type: 'qwen',
   key_pool: [
-    { api_key_env: 'QWEN_KEY_1', weight: 1, label: 'qwen-prod-1' },
-    { api_key_env: 'QWEN_KEY_2', weight: 1, label: 'qwen-prod-2' },
+    { api_key: 'sk-qwen-key-1', weight: 1, label: 'qwen-prod-1' },
+    { api_key: 'sk-qwen-key-2', weight: 1, label: 'qwen-prod-2' },
   ],
   key_routing_strategy: 'round_robin',
   models: [

@@ -44,11 +44,11 @@
 
 ### 所需 API Key
 
-| 模型 | 环境变量 | 获取地址 |
+| 模型 | 配置位置 | 获取地址 |
 |------|----------|----------|
-| **通义千问 Qwen** | `QWEN_API_KEY`（v1）或 `QWEN_KEY_1`/`QWEN_KEY_2`（v2 多 Key） | https://dashscope.console.aliyun.com/ |
-| **MiniMax** | `MINIMAX_API_KEY` | https://platform.minimaxi.com/ |
-| **智谱 GLM** | `GLM_API_KEY` | https://open.bigmodel.cn/ |
+| **通义千问 Qwen** | `config.json` 中的 `api_key` | https://dashscope.console.aliyun.com/ |
+| **MiniMax** | `config.json` 中的 `api_key` | https://platform.minimaxi.com/ |
+| **智谱 GLM** | `config.json` 中的 `api_key` | https://open.bigmodel.cn/ |
 
 ---
 
@@ -60,29 +60,9 @@
 npm install
 ```
 
-### 3.2 配置环境变量
+### 3.2 配置 `config.json`
 
-```bash
-cp .env.example .env
-```
-
-编辑 `.env` 文件：
-
-```bash
-# ===== API Keys =====
-QWEN_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
-MINIMAX_API_KEY=eyJhbGciOiJSUzI1NiIs...
-GLM_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
-
-# ===== 服务配置（可选）=====
-PORT=3000
-BIND_ADDRESS=127.0.0.1
-REQUEST_TIMEOUT_MS=60000
-MAX_FALLBACK_ATTEMPTS=3
-TOTAL_REQUEST_TIMEOUT_MS=90000
-INCLUDE_FALLBACK_DETAIL=false
-KEY_STATS_WINDOW_HOURS=24
-```
+所有配置项（包括 API Key、端口、日志级别、超时等）现在都直接写在 `config.json` 中，无需再创建 `.env`。
 
 ### 3.3 确认配置文件
 
@@ -92,11 +72,12 @@ KEY_STATS_WINDOW_HOURS=24
 {
   "port": 3000,
   "bindAddress": "127.0.0.1",
+  "logLevel": "info",
   "models": [
     {
       "id": "qwen-plus",
       "type": "qwen",
-      "api_key_env": "QWEN_API_KEY",
+      "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxx",
       "total_tokens": 1000000
     }
   ]
@@ -113,8 +94,8 @@ KEY_STATS_WINDOW_HOURS=24
     "qwen": {
       "type": "qwen",
       "key_pool": [
-        { "api_key_env": "QWEN_KEY_1", "weight": 1, "label": "qwen-prod-1" },
-        { "api_key_env": "QWEN_KEY_2", "weight": 1, "label": "qwen-prod-2" }
+        { "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxx", "weight": 1, "label": "qwen-prod-1" },
+        { "api_key": "sk-yyyyyyyyyyyyyyyyyyyyyyyy", "weight": 1, "label": "qwen-prod-2" }
       ],
       "key_routing_strategy": "round_robin",
       "models": [
@@ -168,13 +149,14 @@ curl http://127.0.0.1:3000/health
 
 | 字段 | 类型 | 默认值 | 环境变量覆盖 | 说明 |
 |------|------|--------|-------------|------|
-| `port` | number | `3000` | `PORT` | 服务监听端口 |
-| `bindAddress` | string | `"127.0.0.1"` | `BIND_ADDRESS` | 绑定地址 |
-| `requestTimeoutMs` | number | `60000` | `REQUEST_TIMEOUT_MS` | 单次请求超时（ms） |
-| `maxFallbackAttempts` | number | `3` | `MAX_FALLBACK_ATTEMPTS` | 降级最大尝试次数 |
-| `totalRequestTimeoutMs` | number | `90000` | `TOTAL_REQUEST_TIMEOUT_MS` | 总请求超时（含 fallback） |
-| `includeFallbackDetail` | boolean | `false` | `INCLUDE_FALLBACK_DETAIL` | 响应中是否包含 fallback_detail |
-| `keyStatsWindowHours` | number | `24` | `KEY_STATS_WINDOW_HOURS` | Key 统计滑动窗口（小时） |
+| `port` | number | `3000` | 服务监听端口 |
+| `bindAddress` | string | `"127.0.0.1"` | 绑定地址 |
+| `logLevel` | string | `"info"` | 日志级别：`debug` / `info` / `warn` / `error` |
+| `requestTimeoutMs` | number | `60000` | 单次请求超时（ms） |
+| `maxFallbackAttempts` | number | `3` | 降级最大尝试次数 |
+| `totalRequestTimeoutMs` | number | `90000` | 总请求超时（含 fallback） |
+| `includeFallbackDetail` | boolean | `false` | 响应中是否包含 fallback_detail |
+| `keyStatsWindowHours` | number | `24` | Key 统计滑动窗口（小时） |
 
 ### 4.2 v1 配置格式（向后兼容）
 
@@ -187,7 +169,7 @@ curl http://127.0.0.1:3000/health
 | `type` | string | `qwen` / `minimax` / `glm` |
 | `model_name` | string | 上游 API 使用的模型名 |
 | `endpoint` | string | 上游 API 端点 |
-| `api_key_env` | string | 环境变量名 |
+| `api_key` | string | 实际 API Key |
 | `total_tokens` | number | Token 总配额 |
 
 > v1 格式启动时会自动按厂商类型分组，同类型模型归入同一 vendor，共用单 Key。
@@ -199,8 +181,8 @@ curl http://127.0.0.1:3000/health
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `type` | string | ✅ | 模型类型 |
-| `key_pool` | array | ✅ | Key 池配置（与 `api_key_env` 二选一） |
-| `api_key_env` | string | ✅ | 单 Key 环境变量名（与 `key_pool` 二选一） |
+| `key_pool` | array | ✅ | Key 池配置（与 `api_key` 二选一） |
+| `api_key` | string | ✅ | 单 Key（与 `key_pool` 二选一） |
 | `key_routing_strategy` | string | ❌ | `round_robin`（默认）或 `least_used` |
 | `models` | array | ✅ | 该厂商下的模型列表 |
 
@@ -208,7 +190,7 @@ curl http://127.0.0.1:3000/health
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `api_key_env` | string | ✅ | 环境变量名 |
+| `api_key` | string | ✅ | 实际 API Key |
 | `weight` | number | ❌ | 权重（默认 1，仅 round_robin 有效） |
 | `label` | string | ✅ | Key 标识，用于日志和 API 展示 |
 
@@ -216,11 +198,11 @@ curl http://127.0.0.1:3000/health
 
 | 规则 | 错误处理 |
 |------|---------|
-| 同时存在 `api_key_env` 和 `key_pool` | 启动报错 |
+| 同时存在 `api_key` 和 `key_pool` | 启动报错 |
 | `key_pool` 为空数组 | 启动报错 |
-| 同一 KeyPool 内重复 `api_key_env` | 启动报错 |
+| 同一 KeyPool 内重复 `api_key` | 启动报错 |
 | 同一 KeyPool 内重复 `label` | 启动报错 |
-| 模型级别配置 `api_key_env` | 启动警告，该字段被忽略 |
+| 模型级别配置 `api_key` 为空 | 启动跳过该 vendor |
 
 ### 4.5 Key 路由策略
 
@@ -251,13 +233,13 @@ curl -X POST http://127.0.0.1:3000/v1/chat \
     "id": "req_abc123",
     "content": "你好！……",
     "model_used": "qwen-plus",
-    "vendor_used": "qwen",          // 🆕 v2
-    "key_used": "qwen-prod-1",      // 🆕 v2
+    "vendor_used": "qwen",          
+    "key_used": "qwen-prod-1",     
     "prompt_tokens": 18,
     "completion_tokens": 56,
     "total_tokens": 74,
-    "fallback_count": 0,            // 🆕 v2
-    "fallback_detail": {            // 🆕 v2（需 includeFallbackDetail=true）
+    "fallback_count": 0,            
+    "fallback_detail": {            
       "key_fallbacks": 0,
       "model_fallbacks": 0,
       "tried_keys": ["qwen-prod-1"],
@@ -346,7 +328,7 @@ curl "http://127.0.0.1:3000/admin/stats/keys?vendor=qwen"
 
 | 项目 | 建议 |
 |------|------|
-| **API Key** | 仅通过 `.env` 管理，不要提交到 Git |
+| **API Key** | 当前版本直接写在 `config.json`，请确保配置文件不提交到公开仓库 |
 | **网络** | 生产环境绑定 `127.0.0.1`，使用反向代理 |
 | **鉴权** | MVP 无鉴权，务必在反向代理层添加认证 |
 | **HTTPS** | 通过 Nginx/Caddy 配置 TLS |
@@ -377,7 +359,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
-COPY config.json .env ./
+COPY config.json ./
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
 ```

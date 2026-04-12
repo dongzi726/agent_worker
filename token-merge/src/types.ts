@@ -5,6 +5,9 @@
 /** Model provider type */
 export type ModelType = 'qwen' | 'minimax' | 'glm';
 
+/** Logger level */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
 /** Key routing strategy within a vendor */
 export type KeyRoutingStrategy = 'round_robin' | 'least_used';
 
@@ -17,7 +20,7 @@ export type KeyStatus = 'healthy' | 'cooldown' | 'disabled';
 
 /** A single API Key entry in config */
 export interface KeyEntryConfig {
-  api_key_env: string;      // Environment variable name containing the actual key
+  api_key: string;          // Actual API key stored directly in config.json
   weight?: number;          // Load balancing weight (default 1, only for round_robin)
   label: string;            // Human-readable identifier for logging and monitoring
 }
@@ -137,7 +140,7 @@ export interface LegacyModelConfig {
   type: ModelType;
   model_name: string;
   endpoint: string;
-  api_key_env: string;
+  api_key: string;
   total_tokens: number;
 }
 
@@ -149,6 +152,7 @@ export interface LegacyModelConfig {
 export interface V2AppConfig {
   port: number;
   bindAddress: string;
+  logLevel?: LogLevel;
   requestTimeoutMs: number;
   maxFallbackAttempts: number;
   totalRequestTimeoutMs: number;       // Total timeout including fallbacks (default 90s)
@@ -161,6 +165,7 @@ export interface V2AppConfig {
 export interface AppConfig {
   port: number;
   bindAddress: string;
+  logLevel: LogLevel;
   requestTimeoutMs: number;
   maxFallbackAttempts: number;
   totalRequestTimeoutMs: number;

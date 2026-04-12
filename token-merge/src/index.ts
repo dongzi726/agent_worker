@@ -2,7 +2,6 @@
 // index.ts — Application entry point (v2)
 // ============================================================
 
-import 'dotenv/config';
 import express from 'express';
 import { loadConfig, resolveVendorKeys } from './config';
 import { TokenPool } from './tokenPool';
@@ -13,11 +12,12 @@ import { ChatRoutes } from './routes/chat';
 import { AdminRoutes } from './routes/admin';
 import { SystemRoutes } from './routes/system';
 import { KeyAdminRoutes } from './routes/keyAdmin';
-import { log } from './logger';
+import { log, setLogLevel } from './logger';
 
 async function main() {
   // Load configuration (v1 or v2 format, auto-transformed to v2 internal)
   const config = loadConfig();
+  setLogLevel(config.logLevel);
   log.info('Configuration loaded', {
     port: config.port,
     bindAddress: config.bindAddress,

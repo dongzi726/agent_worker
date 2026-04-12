@@ -27,7 +27,7 @@ function makePool(
   const entries: { config: KeyEntryConfig; apiKey: string }[] = [];
   for (let i = 0; i < count; i++) {
     entries.push({
-      config: { api_key_env: `TEST_KEY_${i}`, label: `key-${i + 1}`, weight: weights?.[i] ?? 1 },
+      config: { api_key: `sk-test-key-${i}`, label: `key-${i + 1}`, weight: weights?.[i] ?? 1 },
       apiKey: `sk-test-key-${i}`,
     });
   }
@@ -71,7 +71,6 @@ console.log('\n=== V2-F2.3: Least Used — selects key with lowest call count ==
   const pool = makePool('qwen', 'least_used', 3);
 
   // Manually add timestamps to key-1 to simulate higher usage
-  const now = Date.now();
   for (let i = 0; i < 100; i++) {
     pool.recordSuccess('key-1');
   }
