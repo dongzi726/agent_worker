@@ -1,5 +1,5 @@
 // ============================================================
-// index.ts — Application entry point (v2)
+// index.ts — Application entry point (v3: users, auth, API keys)
 // ============================================================
 
 import express from 'express';
@@ -14,6 +14,14 @@ import { SystemRoutes } from './routes/system';
 import { KeyAdminRoutes } from './routes/keyAdmin';
 import { log, setLogLevel } from './logger';
 
+// Iteration 3: Auth, User API Key management, User stats
+import { authRouter } from './routes/auth';
+import userKeysRoutes from './routes/userKeys';
+import userStatsRoutes from './routes/userStats';
+import adminV2Routes from './routes/adminV2';
+import { initDatabase, closeDatabase } from './db/pool';
+import { initRedis, closeRedis } from './db/cache';
+
 async function main() {
   // Load configuration (v1 or v2 format, auto-transformed to v2 internal)
   const config = loadConfig();
@@ -24,6 +32,13 @@ async function main() {
     modelCount: config.models.length,
     vendorCount: config.vendors.length,
   });
+
+  // === Iteration 3: Initialize DB and Redis ===
+  await initDatabase();
+  log.info('PostgreSQL connection established');
+
+  const redisOk = await initRedis();
+  log.info(`Redis ${redisOk ? 'connected' : 'unavailable (running without cache)'}`);
 
   // Initialize token pool
   const pool = new TokenPool(config.models);
@@ -97,6 +112,18 @@ async function main() {
     next();
   });
 
+  // === Iteration 3: Authentication routes ===
+  app.use('/auth', authRouter);
+
+  // === Iteration 3: User-facing API Key management ===
+  app.use('/user', userKeysRoutes);
+
+  // === Iteration 3: User-facing stats & quota ===
+  app.use('/user', userStatsRoutes);
+
+  // === Iteration 3: Admin management (users, keys, monitoring, system) ===
+  app.use('/admin', adminV2Routes);
+
   // Register routes
   // User-facing chat APIs
   app.post('/v1/chat', (req, res) => chatRoutes.chat(req, res));
@@ -108,12 +135,12 @@ async function main() {
   app.post('/admin/quota/:modelId/reset', (req, res) => adminRoutes.resetUsage(req, res));
   app.get('/admin/stats', (req, res) => adminRoutes.getStats(req, res));
 
-  // Key management APIs (v2)
-  app.get('/admin/keys', (req, res) => keyAdminRoutes.getAllKeys(req, res));
-  app.get('/admin/keys/:vendorId/:keyId', (req, res) => keyAdminRoutes.getKeyDetail(req, res));
-  app.put('/admin/keys/:vendorId/:keyId/status', (req, res) => keyAdminRoutes.updateKeyStatus(req, res));
-  app.post('/admin/keys/:vendorId/:keyId/reset', (req, res) => keyAdminRoutes.resetKey(req, res));
-  app.get('/admin/stats/keys', (req, res) => keyAdminRoutes.getKeyStats(req, res));
+  // Key management APIs (v2) — Vendor API keys
+  app.get('/admin/vendor-keys', (req, res) => keyAdminRoutes.getAllKeys(req, res));
+  app.get('/admin/vendor-keys/:vendorId/:keyId', (req, res) => keyAdminRoutes.getKeyDetail(req, res));
+  app.put('/admin/vendor-keys/:vendorId/:keyId/status', (req, res) => keyAdminRoutes.updateKeyStatus(req, res));
+  app.post('/admin/vendor-keys/:vendorId/:keyId/reset', (req, res) => keyAdminRoutes.resetKey(req, res));
+  app.get('/admin/vendor-keys/stats', (req, res) => keyAdminRoutes.getKeyStats(req, res));
 
   // System APIs
   app.get('/health', (req, res) => systemRoutes.health(req, res));
@@ -151,8 +178,25 @@ async function main() {
   // Don't prevent process exit
   cleanupInterval.unref();
 
+  // Graceful shutdown
+  process.on('SIGINT', async () => {
+    log.info('Shutting down gracefully...');
+    clearInterval(cleanupInterval);
+    await closeDatabase();
+    await closeRedis();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    log.info('Shutting down gracefully...');
+    clearInterval(cleanupInterval);
+    await closeDatabase();
+    await closeRedis();
+    process.exit(0);
+  });
+
   app.listen(port, bindAddress, () => {
-    log.info(`TokenMerge server started (v2)`, {
+    log.info(`TokenMerge server started (v3)`, {
       address: `${bindAddress}:${port}`,
       vendors: Array.from(keyPools.keys()),
       models: config.models.map((m) => m.id),

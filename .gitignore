@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+
+# Test reports (keep source, not generated)
+bugs.md
+testcases.md
+testplan.md
+testreport.md

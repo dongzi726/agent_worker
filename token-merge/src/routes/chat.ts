@@ -1,5 +1,5 @@
 // ============================================================
-// routes/chat.ts — User-facing chat API routes (v2)
+// routes/chat.ts — User-facing chat API routes (v3: API Key auth)
 // ============================================================
 
 import type { Request, Response } from 'express';
@@ -7,6 +7,9 @@ import type { ModelRouter } from '../router';
 import type { ApiResponse, ChatRequest } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../logger';
+import { requireApiKey } from '../auth/middleware';
+import { db, usageLogs } from '../db/db';
+import { sql } from 'drizzle-orm';
 
 export class ChatRoutes {
   private router: ModelRouter;
@@ -19,6 +22,10 @@ export class ChatRoutes {
 
   /** POST /v1/chat — Unified chat endpoint */
   async chat(req: Request, res: Response): Promise<void> {
+    // API Key auth
+    await requireApiKey(req, res, () => {});
+    if (res.headersSent) return;
+
     try {
       const body = req.body as ChatRequest;
 
@@ -57,6 +64,7 @@ export class ChatRoutes {
       }
 
       const requestId = uuidv4();
+      const startTime = Date.now();
       log.info('Chat request received', { requestId, promptLength: body.prompt.length });
 
       // Route to best available model
@@ -66,6 +74,35 @@ export class ChatRoutes {
         temperature: body.temperature,
         system_prompt: body.system_prompt,
       });
+
+      const elapsed = Date.now() - startTime;
+
+      // Log usage
+      const apiKeyId = (req as any).apiKey?.keyId;
+      const apiUserId = (req as any).apiKey?.userId;
+      if (apiUserId && apiKeyId) {
+        await db.insert(usageLogs).values({
+          userId: apiUserId,
+          keyId: apiKeyId,
+          modelId,
+          statusCode: 200,
+          promptTokens: result.prompt_tokens,
+          completionTokens: result.completion_tokens,
+          totalTokens: result.total_tokens,
+          latencyMs: elapsed,
+        });
+
+        // Update user + key used_tokens
+        await db.execute(sql`
+          UPDATE users SET used_tokens = used_tokens + ${result.total_tokens}
+          WHERE id = ${apiUserId}
+        `);
+        await db.execute(sql`
+          UPDATE user_api_keys SET used_tokens = used_tokens + ${result.total_tokens},
+            last_used_at = NOW()
+          WHERE key_id = ${apiKeyId}
+        `);
+      }
 
       const responseData: {
         id: string;
@@ -108,6 +145,10 @@ export class ChatRoutes {
 
   /** POST /v1/chat/completions — OpenAI-compatible endpoint */
   async chatCompletions(req: Request, res: Response): Promise<void> {
+    // API Key auth
+    await requireApiKey(req, res, () => {});
+    if (res.headersSent) return;
+
     try {
       const body = req.body;
 
@@ -148,10 +189,40 @@ export class ChatRoutes {
       };
 
       const requestId = uuidv4();
+      const startTime = Date.now();
       log.info('OpenAI-compatible chat request received', { requestId, promptLength: prompt.length });
 
       // Route to best available model
       const { result, modelId, vendorId, keyId, fallbackDetail } = await this.router.route(chatRequest);
+
+      const elapsed = Date.now() - startTime;
+
+      // Log usage
+      const apiKeyId = (req as any).apiKey?.keyId;
+      const apiUserId = (req as any).apiKey?.userId;
+      if (apiUserId && apiKeyId) {
+        await db.insert(usageLogs).values({
+          userId: apiUserId,
+          keyId: apiKeyId,
+          modelId,
+          statusCode: 200,
+          promptTokens: result.prompt_tokens,
+          completionTokens: result.completion_tokens,
+          totalTokens: result.total_tokens,
+          latencyMs: elapsed,
+        });
+
+        // Update user + key used_tokens
+        await db.execute(sql`
+          UPDATE users SET used_tokens = used_tokens + ${result.total_tokens}
+          WHERE id = ${apiUserId}
+        `);
+        await db.execute(sql`
+          UPDATE user_api_keys SET used_tokens = used_tokens + ${result.total_tokens},
+            last_used_at = NOW()
+          WHERE key_id = ${apiKeyId}
+        `);
+      }
 
       const responseData: {
         id: string;
@@ -243,3 +314,5 @@ function buildFallbackDetail(detail: {
     tried_models: detail.tried_models,
   };
 }
+
+// (sql already imported at top)
